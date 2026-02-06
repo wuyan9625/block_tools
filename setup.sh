@@ -1,6 +1,6 @@
 #!/bin/bash
 # =========================================================
-# Block-FW | PVE 自動化出站防火牆 (全域攔截版)
+# Block-FW | PVE 自動化出站防火牆 (全域修復版 v2)
 # =========================================================
 
 # --- 設定區 ---
@@ -8,10 +8,15 @@ SCRIPT_NAME="block-fw"
 INSTALL_PATH="/usr/local/bin/$SCRIPT_NAME"
 DATA_DIR="/var/lib/block-fw"
 
-# --- 外部清單來源 ---
+# --- 你的 GitHub 腳本網址 (用於自我安裝) ---
+# 這是修復菜單打不開的關鍵，必須指向你自己的 raw 網址
+MY_GITHUB_URL="https://raw.githubusercontent.com/wuyan9625/block_tools/main/setup.sh"
+
+# --- 外部清單來源 (已更換為 GitHub Mirror 穩定源) ---
 URL_CN="https://raw.githubusercontent.com/gaoyifan/china-operator-ip/ip-lists/china.txt"
-URL_MALWARE="https://iplists.firehol.org/files/firehol_level1.netset"
-URL_P2P="https://iplists.firehol.org/files/iblocklist_level1.netset"
+URL_MALWARE="https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_level1.netset"
+# 更換為 GitHub Mirror 避免 404
+URL_P2P="https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/iblocklist_level1.netset"
 
 # --- 本地暫存檔 ---
 FILE_COMBINED="$DATA_DIR/blocked_combined.list"
@@ -36,7 +41,7 @@ mkdir -p "$DATA_DIR"
 # 核心功能
 # =======================
 
-# 下載並整合所有清單 (CN + Malware + P2P)
+# 下載並整合所有清單
 fetch_rules() {
     echo -e "${YELLOW}[*] 正在同步清單 (CN + P2P + Malware)...${PLAIN}"
     
@@ -54,16 +59,16 @@ fetch_rules() {
     
     if [ -s "${FILE_COMBINED}.tmp" ]; then
         # 過濾處理：移除註解、空行、私有 IP (避免誤殺內網)
+        # 這裡會過濾掉 10.x, 192.168.x, 172.16-31.x, 127.x
         grep -vE "^#|^$|^10\.|^192\.168\.|^172\.(1[6-9]|2[0-9]|3[0-1])\.|^127\." "${FILE_COMBINED}.tmp" > "$FILE_COMBINED"
         rm "${FILE_COMBINED}.tmp"
         echo -e "${GREEN} -> 規則整合完成 (已包含 CN 強制封鎖)${PLAIN}"
     else
-        echo -e "${RED} [!] 清單下載失敗，將使用舊檔 (如果存在)${PLAIN}"
+        echo -e "${RED} [!] 清單下載失敗，保留舊檔${PLAIN}"
     fi
 }
 
 apply_rules() {
-    # 注意：這裡不再需要選擇 vmbr，因為改用全域攔截以確保不漏接
     local block_inbound="$1" # yes/no
 
     if [ ! -f "$FILE_COMBINED" ]; then
@@ -71,24 +76,23 @@ apply_rules() {
         return
     fi
 
-    echo -e "${YELLOW}[*] 正在載入 IPSET (條目眾多請稍候)...${PLAIN}"
+    echo -e "${YELLOW}[*] 正在載入 IPSET (請稍候)...${PLAIN}"
     ipset create "$IPSET_NAME" hash:net -exist
     ipset flush "$IPSET_NAME"
-    ipset restore < <(sed "s/^/add $IPSET_NAME /" "$FILE_COMBINED")
+    # 使用 -exist 靜音重複 IP 的警告
+    ipset restore -exist < <(sed "s/^/add $IPSET_NAME /" "$FILE_COMBINED")
 
     echo -e "${YELLOW}[*] 設定 iptables 全域規則...${PLAIN}"
 
-    # 1. 強力清除舊規則 (包含所有介面的舊規則)
-    # 先列出所有相關規則並刪除，避免殘留
+    # 1. 強力清除舊規則
     iptables-save | grep "$RULE_COMMENT" | sed 's/^-A/-D/' | while read -r line; do
         iptables $line 2>/dev/null
     done
-    # 再次確保刪除全域規則
+    # 雙重保險
     iptables -D FORWARD -m set --match-set "$IPSET_NAME" dst -j DROP -m comment --comment "$RULE_COMMENT" 2>/dev/null || true
     iptables -D FORWARD -m set --match-set "$IPSET_NAME" src -j DROP -m comment --comment "$RULE_COMMENT" 2>/dev/null || true
 
     # 2. 【強制】封鎖出站 (Forward 到黑名單 IP)
-    # 不指定 -i 介面，這樣才能攔截到從 tap/bridge 過來的流量
     iptables -I FORWARD -m set --match-set "$IPSET_NAME" dst -j DROP -m comment --comment "$RULE_COMMENT"
     
     # 3. 【可選】封鎖入站 (黑名單 IP 連入)
@@ -102,7 +106,6 @@ apply_rules() {
 
 setup_cron() {
     local block_inbound="$1"
-    # 將選擇寫入 cron 指令中
     local cron_cmd="0 4 * * * $INSTALL_PATH update $block_inbound > /dev/null 2>&1"
     
     (crontab -l 2>/dev/null | grep -v "$SCRIPT_NAME"; echo "$cron_cmd") | crontab -
@@ -110,13 +113,15 @@ setup_cron() {
 }
 
 install_self() {
-    cp "$0" "$INSTALL_PATH"
+    echo -e "${YELLOW}[*] 正在安裝腳本至系統...${PLAIN}"
+    # 【關鍵修復】從 GitHub 下載自身，而不是複製 $0
+    curl -fsSL "$MY_GITHUB_URL" -o "$INSTALL_PATH"
     chmod +x "$INSTALL_PATH"
+    echo -e "${GREEN}[OK] 安裝完成！輸入 block-fw 即可喚出選單${PLAIN}"
 }
 
 uninstall() {
     echo -e "${YELLOW}正在移除規則...${PLAIN}"
-    # 清除所有帶有標記的規則
     iptables-save | grep "$RULE_COMMENT" | sed 's/^-A/-D/' | while read -r line; do
         iptables $line 2>/dev/null
     done
@@ -141,7 +146,7 @@ stats() {
 # 主流程
 # =======================
 
-# Cron 自動更新模式： ./block-fw update <yes/no>
+# Cron 自動更新模式
 if [[ "$1" == "update" ]]; then
     block_inbound=${2:-no}
     fetch_rules
@@ -151,9 +156,9 @@ fi
 
 clear
 echo -e "==========================================="
-echo -e " Block-FW | PVE 防火牆 (全域修復版)"
+echo -e " Block-FW | PVE 防火牆 (全域修復版 v2)"
 echo -e "==========================================="
-echo -e " 1. 部署防護 (修復攔截失效問題)"
+echo -e " 1. 部署防護 (修復 404 及 菜單失效問題)"
 echo -e " 2. 查看統計"
 echo -e " 3. 手動更新清單"
 echo -e " 4. 移除防護"
@@ -167,7 +172,6 @@ case "$opt" in
         
         echo -e "\n${YELLOW}關於流量方向設定：${PLAIN}"
         echo -e "1. ${GREEN}出站 (Outbound)${PLAIN}: VM -> CN/P2P。 ${RED}[強制封鎖]${PLAIN}"
-        echo -e "   (此版本採用全域攔截，保證所有 VM 生效)\n"
         
         read -p "是否也要封鎖【入站 (Inbound)】流量? [y/N]: " in_opt
         if [[ "$in_opt" == "y" || "$in_opt" == "Y" ]]; then
