@@ -1,0 +1,6 @@
+[Unit]
+Description=block-fw ipset update
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/block-fw update
