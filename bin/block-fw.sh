@@ -79,14 +79,14 @@ apply_fw() {
         done
     fi
 
-    # SNI 阻擋 (銀行/支付)
+    # SNI 阻擋 (銀行/支付) - 改用 String 模組 (Proxmox 兼容修正)
     if [[ "$ENABLE_TW_BANK_SNI" == "1" ]]; then
         if [ -f "$DATA_DIR/tw_bank_sni.txt" ]; then
+            echo "   -> 載入 SNI 銀行阻擋清單..."
             while read -r sni; do
                 [[ -z "$sni" || "$sni" =~ ^# ]] && continue
-                # 嘗試使用 xt_tls，如果失敗則警告
-                iptables -A "$CHAIN" -p tcp --dport 443 -m tls --tls-host "$sni" -j DROP 2>/dev/null \
-                || echo "警告: 無法套用 SNI 阻擋 ($sni)，請檢查 xt_tls 模組是否載入"
+                # 使用 string 模組匹配 SNI (解決 xt_tls 缺失問題)
+                iptables -A "$CHAIN" -p tcp --dport 443 -m string --string "$sni" --algo bm -j DROP
             done < "$DATA_DIR/tw_bank_sni.txt"
         fi
     fi
@@ -117,7 +117,7 @@ apply_fw() {
     # 放行其他
     iptables  -A "$CHAIN" -j RETURN
     ip6tables -A "$CHAIN" -j RETURN
-    echo "防火牆規則已生效。"
+    echo "✅ 防火牆規則已生效 (SNI 阻擋已啟用)。"
 }
 
 flush_fw() {
@@ -162,7 +162,7 @@ show_menu() {
     while true; do
         clear
         echo "========================================"
-        echo "   Fachost Block Tools v2.0 (Proxmox)   "
+        echo "   Fachost Block Tools v2.1 (PVE Fix)   "
         echo "========================================"
         echo "目前模式: $BRIDGE_MODE"
         echo "監控網橋: ${VM_BRIDGES[*]}"
@@ -192,7 +192,7 @@ show_menu() {
 
 check_root
 
-# 如果有參數，執行 CLI 模式 (給 systemd 或排程用)
+# 如果有參數，執行 CLI 模式
 if [ -n "${1:-}" ]; then
     case "$1" in
         apply) apply_fw ;;
@@ -201,6 +201,5 @@ if [ -n "${1:-}" ]; then
         *) echo "Usage: block-fw {apply|update|flush}" ;;
     esac
 else
-    # 沒有參數，進入選單模式
     show_menu
 fi
