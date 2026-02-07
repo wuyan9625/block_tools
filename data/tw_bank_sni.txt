@@ -1,0 +1,32 @@
+# ===== 富邦 =====
+pay.fubon.com.tw
+txn.fubon.com.tw
+api.fubon.com.tw
+taipeifubon.com.tw
+
+# ===== 國泰世華 =====
+txn.cathaybk.com.tw
+api.cathaybk.com.tw
+pay.cathaybk.com.tw
+
+# ===== 玉山 =====
+api.esunbank.com.tw
+pay.esunbank.com.tw
+
+# ===== 第一銀行 =====
+ibank.firstbank.com.tw
+txn.firstbank.com.tw
+
+# ===== 兆豐 =====
+api.megabank.com.tw
+txn.megabank.com.tw
+
+# ===== 土地銀行 =====
+ebank.landbank.com.tw
+txn.landbank.com.tw
+
+# ===== 中華郵政 =====
+epost.post.gov.tw
+ipost.post.gov.tw
+pay.post.gov.tw
+api.post.gov.tw
