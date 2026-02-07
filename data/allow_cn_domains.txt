@@ -1,0 +1,15 @@
+# ==========================================
+# CN 白名單域名列表 (Whitelist Domains)
+# 這些域名會被解析為 IP 並優先放行
+# ==========================================
+
+# Bilibili (B站) - 主站與 API
+bilibili.com
+www.bilibili.com
+passport.bilibili.com
+api.bilibili.com
+interface.bilibili.com
+
+# Bilibili 影片 CDN (很重要，不然無法播放)
+hdslb.com
+cn-hk-eq-bcache-01.bilivideo.com
